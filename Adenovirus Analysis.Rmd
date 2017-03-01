@@ -1,0 +1,185 @@
+---
+title: "Adenovirus Uganda"
+Author: Richard R. Evans
+date: "`r format(Sys.time(),'%B, %d, %Y')`"
+output: 
+  html_document: 
+    code_folding: hide
+    highlight: tango
+    theme: united
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE,
+                      fig.width = 12,
+                      fig.height = 8)
+```
+
+# Study and Data Description
+
+Prospective cohort of 32 women and children less than 7 years old enrolled between 2008-2009. The youngest child is referred to as the "primary child", all other household children known as "secondary children". In total, there were 32 infants belonging to 32 months and 49 other household children were followed for a median of 57 weeks (range, 3-119 weeks). 17 Mothers had HIV-1 and no infants *acquired* HIV-1, however 4 secondary children were positive for HIV-1. 12-month incidence of postnatal infection was calculated for HHV-6B, CMV, EBV, HSV-1 and HHV-8 (0%, surprisingly) but not HBoV-1 or Adenovirus
+
+Primary infection was defined as the first episode of oral viral shedding and/or viremia following birth.
+
+> Inclusion/Exclusion
+
+a. **Inclusion Criteria**:
+    1. Women must be at least 18 years old as per self-report
+    2. Participants must be willing to have home visits by a study staff member
+    3. Women must provide written or oral informed consent for themselves and their children (of whom they are the legal guardians) to participate in the study
+
+b.  **Exclusion Criteria**:
+    1. Inability or unwillingness to comply with all aspects of the study protocol
+    
+> Enrollment and Follow-up
+
+a. **Antenatal Visit** - pregnant women in third trimester enrolled
+b. **Baseline HHV-8 Testing of the Mother and Secondary Children** - saliva collected from woman and any children < 7 years old. Woman is then given swabs and instructed how to collect saliva from herself and her children daily for 2 weeks.
+c. **Follow-up Visit Schedule** - followed for up to 3 years. Follow-up visits will be each week, at the participants' home at a time pre-arranged to be convenient for them - or - the women will arrange to bring children to the UCI clinic if home visit is not acceptable.
+d. **Accrual Estimates** - A total of 30 primary children, their mothers and young siblings will be followed for at least 1 year. Study investigators hypothesize that it will take 6 months to enroll all 30 participants, and ~20% will be replaced during loss to follow-up
+
+NOTE: Families enrolled in screening phase for laboratory testing. These are marked by a stdy_wk=0 in data collection forms
+
+> Data Collection and Management
+
+1. In addition to the above:
+    a. Maternal blood samples for HHV-8 and PCR of plasma collected once each year
+    b. Blood obtained ASAP after birth of primary child for PCR testing
+    c. Blood from primary child for HHV-8 and PCR of plasma starting as early as 6 weeks of age and every 4 months
+    d. Blood samples for PCR from each secondary child < 7 once each year
+    e. Saliva for PCR from mother and all children obtained weekly for 3 years, and large volume of saliva every 4 months for Ab testing (*I don't see this one in the data or data dictionary* )
+    f. Questionnaire and physical exam of the primary child will be administered weekly to capture signs and symptoms of illness that occurred in the previous week
+
+
+```{r, library loading}
+library(tidyverse) # data manipulation
+library(ggplus)    # extra ggplot features, mainly faceting
+library(magrittr)  # extra piping features
+```
+
+# Data
+
+    a. Case Report Form (CRF) - medical data, collected weekly
+    b. Demographics (demo) - demographics and hiv/cd4 data
+    c. PCR results (pcr_boca_adeno)
+
+```{r}
+crf <- "~/Documents/Martin Lab/HBov-1/Uganda/crf.csv"
+crf <- read.csv(file = crf, stringsAsFactors=F)
+demo <- "~/Documents/Martin Lab/HBov-1/Uganda/Demo.csv"
+demo <- read.csv(file = demo, stringsAsFactors=F)
+pcr_boca_adeno <- "~/Documents/Martin Lab/HBov-1/Uganda/PCR_Boca_Adeno.csv"
+pcr_boca_adeno <- read.csv(file = pcr_boca_adeno, stringsAsFactors=F)
+```
+
+```{r}
+colnames(crf) <- tolower(colnames(crf))
+colnames(demo) <- tolower(colnames(demo))
+colnames(pcr_boca_adeno) <- tolower(colnames(pcr_boca_adeno))
+```
+
+Without Pilot Data
+```{r}
+pcr_boca_adeno %>%
+  mutate(patientid = factor(patientid), 
+         coldate = as.Date(coldate, "%d-%b-%y")) %>%
+  select(coldate, patientid, stdy_wk, orl_af, pls_af) %>%
+  filter(stdy_wk != 0) -> pcr_adeno.clean
+dim(pcr_adeno.clean)
+```
+
+Only Pilot Phase Data
+```{r}
+pcr_boca_adeno %>%
+  filter(stdy_wk == 0) %>%
+  mutate(patientid = factor(patientid), 
+         coldate = as.Date(coldate, "%d-%b-%y"),
+         adeno.pos = ifelse(orl_af != 0.0, 1, 0),
+         family_id = substr(as.character(patientid), 2, 5),
+         idcode = substr(as.character(patientid), 7,7)) %>%
+  select(coldate, patientid, stdy_wk, orl_af, 
+         pls_af, adeno.pos, family_id, idcode) -> pilot.phase
+```
+
+## Investigate Pilot Phase Data
+
+There were `r dim(pilot.phase)[[1]]` total weeks of follow-up in the pilot phase. Despite 1,011 person-weeks of follow-up, there were little to no HBoV-1 positive samples, as illustrated in the following histogram and table
+
+```{r}
+title <- "Distribution of Oral Adenovirus Samples"
+xlab <- "Oral Adenovirus Samples log10 c/ml"
+subtit <- "Mothers and Secondary Children during the Pilot Phase"
+pilot.phase %>%
+  ggplot(aes(x = orl_af)) %>%
+  add(geom_histogram()) %>%
+  add(labs(title = title, x = xlab, subtitle = subtit)) %>%
+  add(theme_bw())
+
+with(pilot.phase, {ftable(adeno.pos, family_id, idcode)})
+```
+
+There was only 1 mother with a positive Adenovirus sample during the pilot phase. There were 12 Secondary children with Adenovirus during this time.
+
+# Plot by family
+
+By Study Week of Follow-up
+```{r, eval=FALSE, echo=TRUE}
+pcr_adeno.clean %>%
+  filter(!is.na(orl_af)) %>%
+  mutate(
+    member = factor(ifelse(grepl("M", patientid), "Mother",
+                         ifelse(grepl("P", patientid), "Primary Child",
+                                ifelse(grepl("S1", patientid), "Secondary Child 1",
+                                       ifelse(grepl("S2", patientid), "Secondary Child 2",
+                                              "Secondary Child 3"))))),
+    family_id = substr(patientid, 1, 5)
+    ) %>%
+  select(patientid, family_id, orl_af, stdy_wk, member) %>%
+  ggplot(aes(x = stdy_wk, y = orl_af, color = member)) %>%
+  add(geom_point(alpha=0.7, size=1)) %>%
+  add(scale_color_brewer(palette="Set1")) %>%
+  add(theme_bw()) %>%
+  add(theme(legend.position="bottom")) %>%
+  add(labs(x="Study Week",
+           y="Log10 Adenovirus Viral Load/mL Saliva",
+           title="Adenovirus Viral Load by Household and Family Member")) -> p
+
+pdf("~/Documents/Martin Lab/Adenovirus/family_plots_stdy_wk.pdf")
+ggplus::facet_multiple(plot=p, 
+                       facets="family_id", 
+                       ncol=2, nrow=4, 
+                       scales="free_x")
+dev.off()
+```
+
+By Collection Date
+```{r, eval=FALSE, echo=TRUE}
+pcr_adeno.clean %>%
+  filter(!is.na(orl_af)) %>%
+  mutate(
+    member = factor(ifelse(grepl("M", patientid), "Mother",
+                         ifelse(grepl("P", patientid), "Primary Child",
+                                ifelse(grepl("S1", patientid), "Secondary Child 1",
+                                       ifelse(grepl("S2", patientid), "Secondary Child 2",
+                                              "Secondary Child 3"))))),
+    family_id = substr(patientid, 1, 5)
+    ) %>%
+  select(patientid, family_id, orl_af, coldate, member) %>%
+  ggplot(aes(x = coldate, y = orl_af, color = member)) %>%
+  add(geom_point(alpha = 0.7, size = 1)) %>%
+  add(scale_color_brewer(palette = "Set1")) %>%
+  add(theme_bw()) %>%
+  add(theme(legend.position = "bottom")) %>%
+  add(labs(x="Collection Date",
+           y="Log10 Adenovirus Viral Load/mL Saliva",
+           title="Adenovirus Viral Load by Household and Family Member")) -> p
+
+pdf("~/Documents/Martin Lab/Adenovirus/family_plots_col_date.pdf")
+ggplus::facet_multiple(plot = p, 
+                       facets = "family_id", 
+                       ncol = 2, nrow = 4,
+                       scales="free_x")
+dev.off()
+```
